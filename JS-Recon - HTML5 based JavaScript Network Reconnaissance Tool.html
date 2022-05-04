@@ -1,0 +1,308 @@
+<!-- saved from url=(0206)https://michaelwayneliu.github.io/2018/08/28/JS%E5%86%85%E7%BD%91%E4%B8%BB%E6%9C%BA%E6%89%AB%E6%8F%8F%E5%92%8C%E7%AB%AF%E5%8F%A3%E6%89%AB%E6%8F%8F%E5%A7%BF%E5%8A%BF%E6%80%BB%E7%BB%93/portscan/portscan1.html -->
+<html lang="en" kia_chrome_manager="dmpiliacbnphfempekalpcmebifmghpn" kia_chrome_manager_version="1.0.6"
+    kia_chrome_manager_url="chrome-extension://dmpiliacbnphfempekalpcmebifmghpn/kiapage.html">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>JS-Recon - HTML5 based JavaScript Network Reconnaissance Tool</title>
+    <style>
+        #home_link {
+            position: absolute;
+            left: 5px;
+            top: 2px;
+        }
+
+        #contact_link {
+            position: absolute;
+            right: 5px;
+            top: 2px;
+        }
+
+        #logo {
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        #banner {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        #main {
+            width: 720px;
+            margin-left: auto;
+            margin-right: auto;
+            text-align: center;
+        }
+
+        .tab {
+            padding-left: 50px;
+            padding-right: 50px;
+            padding-bottom: 5px;
+            padding-top: 5px;
+            text-decoration: none;
+            color: #000;
+            font-size: large;
+            margin-bottom: 20px;
+        }
+
+        #tab1 {
+            background-color: #222;
+            color: #FFF;
+        }
+
+        form {
+            margin-top: 20px;
+        }
+
+        input {
+            margin-right: 5px;
+        }
+
+        #form_ns {
+            display: none;
+        }
+
+        #form_pi {
+            display: none;
+        }
+
+        #fs {
+            margin-top: 20px;
+        }
+    </style>
+    <script src="chrome-extension://abnnemjpaacaimkkepphpkaiomnafldi/prompt.js"></script>
+</head>
+
+<body>
+    <div id="main">
+        <div id="banner"><b>HTML5 based JavaScript Network Reconnaissance Tool</b></div>
+        <a class="tab" id="tab1" href="javascript:select_tab(1)">Network Scanning</a>
+        <form name="network_scan" onsubmit="return false">
+
+            Random internal ip over 10.0.0.0/8 mask :
+            <input type="radio" name="random" value="0" checked="">Yes
+            <input type="radio" name="random" value="1">No
+            <br>
+            <label for="start_ip">Start IP Address: </label><input type="text" id="start_ip" size="15" value="10.0.0.0">
+            <label for="end_ip">End IP Address: </label><input type="text" id="end_ip" size="15" value="10.254.254.254">
+            <label for="port">Port: </label><input type="text" id="port" size="5" value="80">
+            <input type="submit" value="Scan" style="margin-left:10px" onclick="scan_network()">
+            <br>
+            <br>
+
+        </form>
+        <fieldset id="fs">
+            <legend>Scan Output</legend>
+            <div id="result"></div>
+            <div>----------------<br><b>Scan Log:</b><br>
+                <div id="log"></div>
+            </div>
+
+        </fieldset>
+    </div>
+    <script>
+        var active_tab = 1;
+        function select_tab(tab_no) {
+            if (tab_no == 1) {
+                if (active_tab == 1) {
+                    return;
+                }
+                else {
+                    active_tab = 1;
+                    document.getElementById('tab1').style.color = "#FFF";
+                    document.getElementById('tab1').style.backgroundColor = "#222";
+                    document.network_scan.style.display = "none";
+                    document.private_ip.style.display = "none";
+                }
+            }
+            else if (tab_no == 2) {
+                if (active_tab == 2) {
+                    return;
+                }
+                else {
+                    active_tab = 2;
+                    document.getElementById('tab1').style.color = "#000";
+                    document.getElementById('tab1').style.backgroundColor = "#CCC";
+                    document.network_scan.style.display = "block";
+                    document.private_ip.style.display = "none";
+                }
+            }
+        }
+        var scan_type = 1;
+        var ip;
+        var start_port;
+        var end_port;
+        var start_ip = [];
+        var end_ip = [];
+        var random;
+        var port;
+        var blocked_ports = [0, 1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 139, 143, 179, 389, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 556, 563, 587, 601, 636, 993, 995, 2049, 4045, 6000];
+        var ws;
+        var xhr;
+        var start_time;
+        var current_port = 0;
+        var current_ip = [];
+        var open_port_max = 100;
+        var closed_port_max = 1000;
+        var ps_open_ports = [];
+        var ps_closed_ports = [];
+        var ps_timeout_ports = [];
+        var ns_hosts_up = [];
+        var network_address = [192, 168, 0, 1];
+        var count = 0;
+
+        function scan_network() {
+            scan_type = 2;
+            reset_scan_out();
+
+            start_ip = document.getElementById('start_ip').value.split(".");
+            end_ip = document.getElementById('end_ip').value.split(".");
+            port = document.getElementById('port').value;
+            if (!document.network_scan.random[0].checked && !(is_valid_ip(start_ip) && is_valid_ip(end_ip) && is_valid_port(port) && (compare_ip(start_ip, end_ip) == 3))) {
+                alert("Invalid IP and port values entered");
+                return;
+            }
+            current_ip = [];
+            ns_hosts_up = [];
+            if (is_blocked(port)) {
+                document.getElementById('result').innerHTML = port + " is a blocked port";
+                return;
+            }
+
+            setTimeout("scan_network_xhr()", 1);
+
+        }
+
+        function scan_network_xhr() {
+            count += 1;
+            if (!document.network_scan.random[0].checked && init_ip_ns()) {
+                return;
+            }
+            else {
+                current_ip = [10 + "." + (Math.floor(Math.random() * 255)) + "." + (Math.floor(Math.random() * 255)) + "." + (Math.floor(Math.random() * 255))]
+            }
+            start_time = (new Date).getTime();
+            try {
+                xhr = new XMLHttpRequest();
+                xhr.open('GET', "http://" + current_ip.join(".") + ":" + port);
+                xhr.send();
+                setTimeout("check_ns_xhr()", 100);
+            }
+            catch (err) {
+                document.getElementById('result').innerHTML += "<b>Scan stopped. Exception: " + err + "</b>";
+                return;
+            }
+        }
+
+        function check_ns_xhr() {
+            var interval = (new Date).getTime() - start_time;
+            if (xhr.readyState == 1) {
+                if (interval > closed_port_max) {
+                    log1(count, current_ip.join(".") + ":" + port);
+                    setTimeout("scan_network_xhr()", 1);
+                }
+                else {
+                    setTimeout("check_ns_xhr()", 100);
+                }
+            }
+            else {
+                document.getElementById('result').innerHTML += "<a href='http://" + current_ip.join(".") + "'>" + current_ip.join(".") + "</a>, ";
+                ns_hosts_up.push(current_ip.join("."));
+                setTimeout("scan_network_xhr()", 1);
+            }
+        }
+
+        function is_blocked(port_no) {
+            for (var i = 0; i < blocked_ports.length; i++) {
+                if (blocked_ports[i] == port_no) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function copy_ip(source) {
+            var dest = [];
+            for (var i = 0; i < source.length; i++) {
+                dest[i] = source[i];
+            }
+            return dest;
+        }
+
+        function is_valid_ip(v_ip) {
+            if (((v_ip[0] > 0) && (v_ip[0] <= 223)) && ((v_ip[1] >= 0) && (v_ip[1] <= 255)) && ((v_ip[2] >= 0) && (v_ip[2] <= 255)) && ((v_ip[3] > 0) && (v_ip[3] < 255))) {
+                return true;
+            }
+            else {
+                return false;
+            }
+        }
+
+        function is_valid_port(v_port) {
+            if (v_port > 0 && v_port < 65536) {
+                return true;
+            }
+            else {
+                return false;
+            }
+        }
+
+        function compare_ip(a, b) {
+            for (var i = 0; i < 4; i++) {
+                var r = _compare_int(a[i], b[i]);
+                if (r == 1) {
+                    return 1;//a is greater than b
+                }
+                else if (r == 3) {
+                    return 3;//b is greater than a
+                }
+            }
+            return 2;//b is equal to a
+        }
+
+        function _compare_int(_a, _b) {
+            if (_a > _b) {
+                return 1;//_a is greater than _b
+            }
+            else if (_a == _b) {
+                return 2;//_a is equal to _b
+            }
+            else {
+                return 3;//_a is lesser than _b
+            }
+        }
+
+        function increment_ip(inc_ip) {
+            inc_ip[3]++;
+            for (var i = 3; i >= 0; i--) {
+                if (inc_ip[i] == 255) {
+                    inc_ip[i] = 0;
+                    inc_ip[i - 1]++;
+                }
+            }
+            return inc_ip;
+        }
+
+        function log(to_log) {
+            document.getElementById('log').innerHTML += to_log + ", ";
+        }
+
+        function log1(to_log, ip) {
+            document.getElementById('log').innerHTML = to_log + " scanned ip (" + ip +")";
+        }
+
+        function reset_scan_out() {
+            document.getElementById('result').innerHTML = "";
+            document.getElementById('log').innerHTML = "";
+        }
+
+    </script>
+
+
+
+
+</body>
+
+</html>
